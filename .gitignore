@@ -64,3 +64,8 @@ target/
 # VirtualEnv
 .venv
 
+# VSCode
+.vscode/
+
+# Ruff linting
+ruff.toml

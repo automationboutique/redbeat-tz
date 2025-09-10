@@ -6,7 +6,7 @@ from celery.schedules import crontab, schedule
 from dateutil import rrule as dateutil_rrule
 
 from redbeat.decoder import RedBeatJSONDecoder, RedBeatJSONEncoder
-from redbeat.schedules import rrule
+from redbeat.schedules import TzAwareCrontab, rrule
 
 try:
     import zoneinfo
@@ -127,6 +127,15 @@ class RedBeatJSONEncoderTestCase(JSONTestCase):
         result = self.dumps(c)
         self.assertEqual(result, json.dumps(self.crontab()))
 
+    def test_tzaware_crontab_roundtrip(self):
+        c = TzAwareCrontab(minute='30', hour='2', tz='America/New_York')
+        result = self.dumps(c)
+        loaded = self.loads(result)
+        self.assertIsInstance(loaded, TzAwareCrontab)
+        # Ensure tz preserved and equality respects tz
+        self.assertEqual(getattr(loaded.tz, 'key', None), 'America/New_York')
+        self.assertEqual(loaded, c)
+
     def test_rrule(self):
         r = rrule(
             'MINUTELY',
@@ -241,7 +250,9 @@ class RedBeatJSONDecoderTestCase(JSONTestCase):
         self.assertEqual(
             result,
             rrule(
-                'MINUTELY', dtstart=datetime(2015, 12, 30, 12, 59, 22, tzinfo=timezone.utc), count=1
+                'MINUTELY',
+                dtstart=datetime(2015, 12, 30, 12, 59, 22, tzinfo=timezone.utc),
+                count=1,
             ),
         )
 
