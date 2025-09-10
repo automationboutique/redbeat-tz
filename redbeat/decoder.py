@@ -10,7 +10,7 @@ try:
 except ImportError:
     from backports import zoneinfo
 
-from .schedules import rrule
+from .schedules import TzAwareCrontab, rrule
 
 
 def to_timestamp(dt):
@@ -54,6 +54,10 @@ class RedBeatJSONDecoder(json.JSONDecoder):
             return schedule(run_every=d['every'], relative=d['relative'])
 
         if objtype == 'crontab':
+            tz = d.pop('tz', None)
+            if tz is not None:
+                # tz is expected to be an IANA string
+                return TzAwareCrontab(tz=tz, **d)
             return crontab(**d)
 
         if objtype == 'weekday':
@@ -93,6 +97,24 @@ class RedBeatJSONEncoder(json.JSONEncoder):
                 'second': obj.second,
                 'microsecond': obj.microsecond,
                 'timezone': timezone,
+            }
+
+        if isinstance(obj, TzAwareCrontab):
+            # Prefer IANA string for tz if available
+            if hasattr(obj.tz, 'key'):
+                tz_value = obj.tz.key
+            elif hasattr(obj.tz, 'zone'):
+                tz_value = obj.tz.zone
+            else:
+                tz_value = 'UTC'
+            return {
+                '__type__': 'crontab',
+                'minute': obj._orig_minute,
+                'hour': obj._orig_hour,
+                'day_of_week': obj._orig_day_of_week,
+                'day_of_month': obj._orig_day_of_month,
+                'month_of_year': obj._orig_month_of_year,
+                'tz': tz_value,
             }
 
         if isinstance(obj, crontab):
