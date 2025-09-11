@@ -40,3 +40,8 @@ Apache License NOTICE
 ---------------------
 This project includes and modifies code under the Apache License, Version 2.0. See `LICENSE` at the repo root. The RedBeat project is the upstream source for this fork. The DST-aware crontab behavior is inspired by the design in Django Celery Beat's tz-aware crontab implementation.
 
+
+Changelog
+---------------------
+- **v2.3.3-tz.1** – Initial release  
+  Forked from upstream RedBeat v2.3.3. Adds per-entry timezone support via the new `TzAwareCrontab` schedule, enabling correct DST-aware scheduling without breaking existing UTC-based entries.
