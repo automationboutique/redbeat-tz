@@ -5,3 +5,11 @@ skip-string-normalization = true
 
 [tool.isort]
 profile = "hug"
+
+[build-system]
+requires = [
+    "setuptools>=61",
+    "wheel",
+    "pbr>=5",
+]
+build-backend = "setuptools.build_meta"
