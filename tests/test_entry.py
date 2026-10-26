@@ -7,6 +7,7 @@ from celery.utils.time import maybe_make_aware
 
 from redbeat import RedBeatSchedulerEntry
 from redbeat.decoder import RedBeatJSONDecoder, from_timestamp, to_timestamp
+from redbeat.schedules import TzAwareCrontab
 from tests.basecase import RedBeatCase
 
 CELERY_CONFIG_DEFAULT_KWARGS = {}
@@ -197,3 +198,53 @@ class test_RedBeatEntryDaylightSaving(RedBeatCase):
             ),
             datetime(2026, 10, 25, 21, 0, tzinfo=timezone.utc),
         )
+
+
+class test_TzAwareCrontabEntryScore(RedBeatCase):
+    # The app stays on UTC and the entry carries its own timezone, as with
+    # TzAwareCrontab in production. last_run_at is then in the entry's
+    # timezone, because TzAwareCrontab.now() returns local time.
+
+    def entry_after_run(self, last_run_utc, hour='22', saved_after=timedelta(seconds=1)):
+        s = TzAwareCrontab(minute='0', hour=hour, tz='Europe/Amsterdam', app=self.app)
+        last_run_at = last_run_utc.astimezone(s.tz)
+        now = last_run_at + saved_after
+        s.nowfun = lambda: now
+        return self.create_entry(name='tz-entry', s=s, last_run_at=last_run_at)
+
+    def test_score_across_autumn_change(self):
+        entry = self.entry_after_run(datetime(2026, 10, 24, 20, 0, tzinfo=timezone.utc))
+
+        self.assertEqual(
+            from_timestamp(entry.score), datetime(2026, 10, 25, 21, 0, tzinfo=timezone.utc)
+        )
+
+    def test_score_across_spring_change(self):
+        entry = self.entry_after_run(datetime(2027, 3, 27, 21, 0, tzinfo=timezone.utc))
+
+        self.assertEqual(
+            from_timestamp(entry.score), datetime(2027, 3, 28, 20, 0, tzinfo=timezone.utc)
+        )
+
+    def test_score_for_hour_range_across_autumn_change(self):
+        # 3-23/6 runs at 03:00, 09:00, 15:00 and 21:00 local time
+        entry = self.entry_after_run(
+            datetime(2026, 10, 24, 19, 0, tzinfo=timezone.utc), hour='3-23/6'
+        )
+
+        self.assertEqual(
+            from_timestamp(entry.score), datetime(2026, 10, 25, 2, 0, tzinfo=timezone.utc)
+        )
+
+    def test_saved_score_and_timezone_survive_redis(self):
+        entry = self.entry_after_run(datetime(2026, 10, 24, 20, 0, tzinfo=timezone.utc))
+        entry.save()
+
+        redis = self.app.redbeat_redis
+        stored = redis.zscore(self.app.redbeat_conf.schedule_key, entry.key)
+        self.assertEqual(from_timestamp(stored), datetime(2026, 10, 25, 21, 0, tzinfo=timezone.utc))
+
+        loaded = RedBeatSchedulerEntry.from_key(entry.key, self.app)
+        self.assertIsInstance(loaded.schedule, TzAwareCrontab)
+        self.assertEqual(loaded.schedule.tz.key, 'Europe/Amsterdam')
+        self.assertEqual(loaded.last_run_at, entry.last_run_at)
