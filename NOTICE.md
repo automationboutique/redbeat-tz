@@ -57,7 +57,7 @@ This project includes and modifies code under the Apache License, Version 2.0. S
 
 Changelog
 ---------------------
-- **v2.4.2.post1** – Rebased onto upstream RedBeat v2.4.2.  
-  Fixes `due_at`: the first run after the autumn clock change no longer fires an hour late, and an entry saved some time after its last run no longer gets an early score.
+- **v2.4.2.post1** – Built on RedBeat 2.4.2 (was 2.3.3).  
+  Fixes a bug where the first run after the autumn clock change started one hour late. Schedules saved by v2.3.3.post1 keep working. Needs Python 3.9 or newer.
 - **v2.3.3.post1** – Initial release  
   Forked from upstream RedBeat v2.3.3. Adds per-entry timezone support via the new `TzAwareCrontab` schedule, enabling correct DST-aware scheduling without breaking existing UTC-based entries.
