@@ -1,7 +1,8 @@
 import json
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from unittest.mock import MagicMock, patch
 
+from celery.schedules import crontab, schedule
 from celery.utils.time import maybe_make_aware
 
 from redbeat import RedBeatSchedulerEntry
@@ -116,6 +117,14 @@ class test_RedBeatEntry(RedBeatCase):
         self.assertLess(last_run_at, due_at)
         self.assertGreater(due_at, before)
 
+    def test_due_at_counts_from_now(self):
+        # remaining_estimate is measured from now, not from last_run_at (#210)
+        now = self.app.now()
+        s = schedule(run_every=60, nowfun=lambda: now, app=self.app)
+        entry = self.create_entry(s=s, last_run_at=now - timedelta(seconds=30))
+
+        self.assertEqual(entry.due_at, now + timedelta(seconds=30))
+
     def test_score(self):
         run_every = 61 * 60
         entry = self.create_entry(run_every=run_every)
@@ -146,3 +155,45 @@ class test_RedBeatEntry(RedBeatCase):
         mock_generate_key.assert_called_once_with(app=self.app, name="test")
 
         self.assertEqual(key, mock_generate_key.return_value)
+
+
+class test_RedBeatEntryDaylightSaving(RedBeatCase):
+    # In 2026 the autumn change is on 25 Oct and in 2027 the spring change is
+    # on 28 Mar, both at 01:00 UTC.
+    config_dict = {'timezone': 'Europe/Amsterdam'}
+
+    def score_after_run(self, last_run_utc, saved_after=timedelta(seconds=1)):
+        """Score of a daily 22:00 local entry, saved `saved_after` its last run."""
+        last_run_at = last_run_utc.astimezone(self.app.timezone)
+        now = last_run_at + saved_after
+        s = crontab(minute=0, hour=22, nowfun=lambda: now, app=self.app)
+        entry = self.create_entry(s=s, last_run_at=last_run_at)
+        return from_timestamp(entry.score)
+
+    def test_score_on_a_normal_day(self):
+        self.assertEqual(
+            self.score_after_run(datetime(2026, 10, 27, 21, 0, tzinfo=timezone.utc)),
+            datetime(2026, 10, 28, 21, 0, tzinfo=timezone.utc),
+        )
+
+    def test_score_across_autumn_change(self):
+        # 22:00 CEST is 20:00 UTC, the next 22:00 CET is 21:00 UTC: 25 hours later
+        self.assertEqual(
+            self.score_after_run(datetime(2026, 10, 24, 20, 0, tzinfo=timezone.utc)),
+            datetime(2026, 10, 25, 21, 0, tzinfo=timezone.utc),
+        )
+
+    def test_score_across_spring_change(self):
+        self.assertEqual(
+            self.score_after_run(datetime(2027, 3, 27, 21, 0, tzinfo=timezone.utc)),
+            datetime(2027, 3, 28, 20, 0, tzinfo=timezone.utc),
+        )
+
+    def test_score_saved_hours_after_run(self):
+        self.assertEqual(
+            self.score_after_run(
+                datetime(2026, 10, 24, 20, 0, tzinfo=timezone.utc),
+                saved_after=timedelta(hours=2),
+            ),
+            datetime(2026, 10, 25, 21, 0, tzinfo=timezone.utc),
+        )

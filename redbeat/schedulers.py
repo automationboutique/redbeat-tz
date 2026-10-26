@@ -7,7 +7,7 @@
 import json
 import ssl
 import warnings
-from datetime import MINYEAR, datetime
+from datetime import MINYEAR, datetime, timezone
 from typing import Any
 
 import redis.exceptions
@@ -15,7 +15,7 @@ from celery.app import app_or_default
 from celery.beat import DEFAULT_MAX_INTERVAL, ScheduleEntry, Scheduler
 from celery.signals import beat_init
 from celery.utils.log import get_logger
-from celery.utils.time import humanize_seconds
+from celery.utils.time import humanize_seconds, maybe_make_aware
 from kombu.utils.objects import cached_property
 from kombu.utils.url import maybe_sanitize_url
 from redis import Redis
@@ -374,9 +374,14 @@ class RedBeatSchedulerEntry(ScheduleEntry):
 
     @property
     def due_at(self):
+        # Work in UTC. delta is real elapsed time, and adding it to a datetime
+        # in a timezone with daylight saving follows the wall clock, which
+        # lands an hour off across a clock change.
+        now = maybe_make_aware(self._default_now()).astimezone(timezone.utc)
+
         # never run => due now
         if self.last_run_at is None:
-            return self._default_now()
+            return now
 
         delta = self.schedule.remaining_estimate(self.last_run_at)
         # if no delta, means no more events after the last_run_at.
@@ -385,9 +390,10 @@ class RedBeatSchedulerEntry(ScheduleEntry):
 
         # overdue => due now
         if delta.total_seconds() < 0:
-            return self._default_now()
+            return now
 
-        return self.last_run_at + delta
+        # delta is measured from now, not from last_run_at
+        return now + delta
 
     @property
     def key(self):
